@@ -1,28 +1,62 @@
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufStream};
 use tokio::net::TcpStream;
+use tokio::time;
+use common::add_end_of_msg;
+
+async fn connect() -> TcpStream {
+    loop {
+        match TcpStream::connect("127.0.0.1:8010").await {
+            Ok(stream) => return stream,
+            Err(e) => {
+                eprintln!("Failed to connect: {}", e);
+                time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+}
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut reader = tokio::io::BufReader::new(tokio::io::stdin()).lines();
+
+    let stream = connect().await;
+    let mut stdin_reader = tokio::io::BufReader::new(tokio::io::stdin()).lines();
+    let mut buf_stream = BufStream::new(stream);
 
     loop {
-        print!("Enter a message to send to the server: ");
+        // cli reader
+        println!("Enter a message to send to the server: ");
         tokio::io::stdout().flush().await?;
-
-        let input = match reader.next_line().await {
+        let mut input = match stdin_reader.next_line().await {
             Ok(Some(line)) => line,
-            _ => break,
+            _ => break
         };
+        let msg_with_eof = add_end_of_msg(&mut input).await?;
 
-        let mut stream = TcpStream::connect("127.0.0.1:8009").await?;
-        stream.write_all(input.as_bytes()).await?;
-        stream.flush().await?;
+        // write to stream
+        buf_stream.write_all(msg_with_eof.as_bytes()).await.expect("TODO: panic message");
+        buf_stream.flush().await?;
 
-        let mut buf = vec![0; 512];
-        let n = stream.read(&mut buf).await?;
-        let response = String::from_utf8_lossy(&buf[0..n]);
-        println!("Server response: {}", response);
+        // read stream
+        let mut line = String::new();
+        match buf_stream.read_line(&mut line).await {
+            Ok(n) if n == 0 => {
+                println!("Connection closed by server");
+                break;
+            }
+            Ok(_) => {
+                if line.ends_with("\r\n") {
+                    println!("Received message from server: {}", line.trim());
+                }
+            }
+            Err(e) => {
+                eprintln!("Error reading from stream: {}", e);
+                break;
+            }
+        }
+
+        println!("You entered: {}\n", msg_with_eof);
     }
-
     Ok(())
 }
