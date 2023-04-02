@@ -1,5 +1,5 @@
 # capechoserver
-### simple echo tcp server and cli client
+### simple echo tcp server and cli client using `tokio`
 
 ### Feat
 1. handles multiple clients. no reconnect atm
