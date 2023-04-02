@@ -6,8 +6,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufStream};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::{select, time};
 
-// creates a one connection server
-// TODO handle multiple connections
+
 async fn create_server() -> TcpListener {
     loop {
         match TcpListener::bind("127.0.0.1:8000").await {
