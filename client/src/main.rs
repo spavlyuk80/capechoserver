@@ -1,12 +1,12 @@
+use common::Message;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufStream};
 use tokio::net::TcpStream;
 use tokio::time;
-use common::add_end_of_msg;
 
 async fn connect() -> TcpStream {
     loop {
-        match TcpStream::connect("127.0.0.1:8010").await {
+        match TcpStream::connect("127.0.0.1:8000").await {
             Ok(stream) => return stream,
             Err(e) => {
                 eprintln!("Failed to connect: {}", e);
@@ -16,10 +16,8 @@ async fn connect() -> TcpStream {
     }
 }
 
-
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-
+async fn main() {
     let stream = connect().await;
     let mut stdin_reader = tokio::io::BufReader::new(tokio::io::stdin()).lines();
     let mut buf_stream = BufStream::new(stream);
@@ -27,16 +25,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         // cli reader
         println!("Enter a message to send to the server: ");
-        tokio::io::stdout().flush().await?;
-        let mut input = match stdin_reader.next_line().await {
+        tokio::io::stdout().flush().await.unwrap();
+        let input = match stdin_reader.next_line().await {
             Ok(Some(line)) => line,
-            _ => break
+            _ => break,
         };
-        let msg_with_eof = add_end_of_msg(&mut input).await?;
+
+        let msg = Message::new(input);
 
         // write to stream
-        buf_stream.write_all(msg_with_eof.as_bytes()).await.expect("TODO: panic message");
-        buf_stream.flush().await?;
+        buf_stream
+            .write_all(Message::add_end_of_msg(&msg).as_bytes())
+            .await
+            .expect("TODO: panic message");
+        buf_stream.flush().await.unwrap();
 
         // read stream
         let mut line = String::new();
@@ -46,8 +48,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
             Ok(_) => {
-                if line.ends_with("\r\n") {
-                    println!("Received message from server: {}", line.trim());
+                let received_msg = Message::new(line);
+                if Message::has_end_of_msg(&received_msg) {
+                    println!("\nYou entered: {}", Message::remove_end_of_msg(&msg));
+                    println!(
+                        "Received message from server: {}",
+                        Message::remove_end_of_msg(&received_msg)
+                    );
+                    println!("-----------------------------------")
                 }
             }
             Err(e) => {
@@ -55,8 +63,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
         }
-
-        println!("You entered: {}\n", msg_with_eof);
     }
-    Ok(())
 }
